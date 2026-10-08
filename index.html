@@ -1365,7 +1365,7 @@ function app() {
         else if (this.panel) this.panel = '';
         else if (this.ui.focus) this.exitFocus();
       });
-      window.addEventListener('beforeunload', () => { this.saveNow(); try { if (this._pip) this._pip.close(); } catch (e) {} });
+      window.addEventListener('beforeunload', () => { this.saveNow(); try { this.closePip(); } catch (e) {} });
     },
 
     /* ---------- persistence ---------- */
@@ -1956,18 +1956,89 @@ function app() {
     },
     /* ---------- floating timer (pop-out window) ---------- */
     popOutTimer() {
-      if (this._pip && !this._pip.closed) { this._pip.close(); return; }
+      if (this.ui.pip) { this.closePip(); return; }
       this.unlockAudio();                       // user click here keeps the chime audible later
+      const v = document.createElement('video');
+      const videoPip = !!(v.requestPictureInPicture && document.pictureInPictureEnabled !== false) || typeof v.webkitSetPresentationMode === 'function';
       const open = async () => {
         let w = null;
-        if ('documentPictureInPicture' in window) {   // Chrome / Edge: small always-on-top window
+        if ('documentPictureInPicture' in window) {   // Chrome / Edge: small always-on-top window with buttons
           try { w = await window.documentPictureInPicture.requestWindow({ width: 300, height: 360 }); } catch (e) { w = null; }
         }
-        if (!w) w = window.open('', 'momentum-timer', 'popup=yes,width=320,height=380');   // Safari / Firefox fallback
+        if (w) return this.mountPip(w);
+        if (videoPip) {                               // Safari (and others): floating always-on-top video of the timer
+          try { await this.mountVideoPip(); return; } catch (e) { this.closePip(); }
+        }
+        w = window.open('', 'momentum-timer', 'popup=yes,width=320,height=380');   // last resort: ordinary small window
         if (!w) { this.toast('Pop-up blocked. Allow pop-ups for this page and try again.', 'error'); return; }
         this.mountPip(w);
       };
       open();
+    },
+    closePip() {
+      try { if (this._pip && !this._pip.closed) this._pip.close(); } catch (e) {}
+      const v = this._pipVideo;
+      if (v) {
+        try { if (document.pictureInPictureElement === v) document.exitPictureInPicture(); else if (v.webkitPresentationMode === 'picture-in-picture') v.webkitSetPresentationMode('inline'); } catch (e) {}
+        this.teardownVideoPip();
+      }
+      this._pip = null; this.ui.pip = false;
+    },
+    teardownVideoPip() {
+      const v = this._pipVideo; if (!v) return;
+      this._pipVideo = null;
+      try { if (this._pipWorker) this._pipWorker.terminate(); } catch (e) {}
+      this._pipWorker = null;
+      try { v.pause(); v.srcObject = null; v.remove(); } catch (e) {}
+      try { if ('mediaSession' in navigator) ['play', 'pause', 'nexttrack'].forEach(a => navigator.mediaSession.setActionHandler(a, null)); } catch (e) {}
+      this.ui.pip = false;
+    },
+    async mountVideoPip() {
+      const self = this, S = 480;
+      const cv = document.createElement('canvas'); cv.width = cv.height = S;
+      const g = cv.getContext('2d');
+      const draw = () => {
+        g.fillStyle = '#0a0a0a'; g.fillRect(0, 0, S, S);
+        const c = S / 2, r = S * 0.4, ring = self.phaseColor;
+        g.lineWidth = 14; g.lineCap = 'round';
+        g.strokeStyle = 'rgba(255,255,255,.15)'; g.beginPath(); g.arc(c, c, r, 0, Math.PI * 2); g.stroke();
+        if (self.pomo.frac > 0) { g.strokeStyle = ring; g.beginPath(); g.arc(c, c, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * self.pomo.frac); g.stroke(); }
+        g.textAlign = 'center'; g.fillStyle = '#fff';
+        g.font = '600 112px Inter, -apple-system, system-ui, sans-serif'; g.textBaseline = 'alphabetic';
+        g.fillText(self.timeLeftText, c, c + 28);
+        g.fillStyle = 'rgba(255,255,255,.7)'; g.font = '500 28px Inter, -apple-system, system-ui, sans-serif';
+        g.fillText(self.statusText.toUpperCase(), c, c + 78);
+        g.fillStyle = 'rgba(255,255,255,.5)'; g.font = '400 24px Inter, -apple-system, system-ui, sans-serif';
+        g.fillText(self.sessionLabel, c, c + 114);
+      };
+      draw();
+      const v = document.createElement('video');
+      v.muted = true; v.playsInline = true; v.setAttribute('playsinline', ''); v.setAttribute('aria-hidden', 'true');
+      v.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none';
+      v.srcObject = cv.captureStream(10);
+      document.body.appendChild(v);
+      this._pipVideo = v; this._pipCanvas = cv;
+      await v.play();
+      if (v.requestPictureInPicture) await v.requestPictureInPicture(); else v.webkitSetPresentationMode('picture-in-picture');
+      this.ui.pip = true;
+      // A Worker is not throttled when this tab is in the background, so the picture keeps updating.
+      let wk = null;
+      try { wk = new Worker(URL.createObjectURL(new Blob(['setInterval(function(){postMessage(0)},250)'], { type: 'text/javascript' }))); } catch (e) {}
+      if (wk) { wk.onmessage = () => { self.tickPomo(); draw(); }; this._pipWorker = wk; }
+      else { const iv = setInterval(() => { self.tickPomo(); draw(); }, 500); v.addEventListener('leavepictureinpicture', () => clearInterval(iv), { once: true }); }
+      // Buttons in the floating window map to media controls: play/pause = start/pause timer, next = skip.
+      try {
+        if ('mediaSession' in navigator) {
+          navigator.mediaSession.metadata = new MediaMetadata({ title: 'Momentum timer', artist: 'Focus' });
+          navigator.mediaSession.setActionHandler('play', () => { self.toggleTimer(); v.play().catch(() => {}); });
+          navigator.mediaSession.setActionHandler('pause', () => { self.toggleTimer(); v.play().catch(() => {}); });
+          navigator.mediaSession.setActionHandler('nexttrack', () => self.skipPhase());
+        }
+      } catch (e) {}
+      v.addEventListener('pause', () => { if (self._pipVideo === v) v.play().catch(() => {}); });   // keep the picture live
+      const gone = () => { if (self._pipVideo === v) self.teardownVideoPip(); };
+      v.addEventListener('leavepictureinpicture', gone, { once: true });
+      v.addEventListener('webkitpresentationmodechanged', () => { if (v.webkitPresentationMode !== 'picture-in-picture') gone(); });
     },
     mountPip(w) {
       const d = w.document, self = this;
