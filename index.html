@@ -139,8 +139,11 @@ tailwind.config = { theme: { extend: { fontFamily: {
     <button class="glass px-4 py-2.5 flex items-center gap-2 hover:bg-white/10 transition pointer-events-auto" @click="enterFocus()" aria-label="Enter Focus Mode" title="Focus Mode">
       <span class="flex items-center h-5" x-html="icon('target','w-4 h-4')"></span><span class="text-sm font-medium hidden min-[430px]:inline">Focus Mode</span>
     </button>
-    <button class="glass px-4 py-2.5 flex items-center gap-2 hover:bg-white/10 transition pointer-events-auto" @click="popOutTimer()" :aria-pressed="ui.pip" :title="ui.pip ? 'Close floating timer' : 'Float the timer in a small window'">
-      <span class="flex items-center h-5" x-html="icon('pip','w-4 h-4')"></span><span class="text-sm font-medium hidden min-[430px]:inline" x-text="ui.pip ? 'Close pop-out' : 'Pop out timer'"></span>
+    <button class="glass px-4 py-2.5 flex items-center gap-2 hover:bg-white/10 transition pointer-events-auto" @click="popOutTimer()" :aria-pressed="ui.pip === 'window'" title="Open the timer, tasks and music in a small window">
+      <span class="flex items-center h-5" x-html="icon('pip','w-4 h-4')"></span><span class="text-sm font-medium hidden min-[430px]:inline" x-text="ui.pip === 'window' ? 'Close pop-out' : 'Pop out timer'"></span>
+    </button>
+    <button x-show="canVideoPip" class="glass px-4 py-2.5 flex items-center gap-2 hover:bg-white/10 transition pointer-events-auto" @click="floatTimer()" :aria-pressed="ui.pip === 'video'" title="Keep a view-only timer on top of other apps">
+      <span class="flex items-center h-5" x-html="icon('pip','w-4 h-4')"></span><span class="text-sm font-medium hidden min-[430px]:inline" x-text="ui.pip === 'video' ? 'Close floating' : 'Float on top'"></span>
     </button>
     </div>
 
@@ -426,7 +429,8 @@ tailwind.config = { theme: { extend: { fontFamily: {
     <div class="flex gap-2">
       <button class="btn" @click="ui.dockCollapsed = !ui.dockCollapsed"><span x-html="icon('music','w-4 h-4')"></span><span x-text="ui.dockCollapsed ? 'Show music' : 'Hide music'"></span></button>
       <button class="icon-btn glass !p-2.5" @click="togglePanel('settings')" aria-label="Settings"><span x-html="icon('settings','w-5 h-5')"></span></button>
-      <button class="btn" @click="popOutTimer()" :title="ui.pip ? 'Close floating timer' : 'Float the timer in a small window'"><span x-html="icon('pip','w-4 h-4')"></span><span x-text="ui.pip ? 'Close pop-out' : 'Pop out'"></span></button>
+      <button class="btn" @click="popOutTimer()" title="Open the timer, tasks and music in a small window"><span x-html="icon('pip','w-4 h-4')"></span><span x-text="ui.pip === 'window' ? 'Close pop-out' : 'Pop out'"></span></button>
+      <button class="btn" x-show="canVideoPip" @click="floatTimer()" title="Keep a view-only timer on top of other apps"><span x-html="icon('pip','w-4 h-4')"></span><span x-text="ui.pip === 'video' ? 'Close floating' : 'Float on top'"></span></button>
       <button class="btn btn-primary" @click="exitFocus()"><span x-html="icon('x','w-4 h-4')"></span>Exit</button>
     </div>
   </div>
@@ -472,6 +476,28 @@ tailwind.config = { theme: { extend: { fontFamily: {
           <button class="btn btn-primary" @click="saveFocus()"><span x-html="icon('check','w-4 h-4')"></span></button>
         </div>
       </template>
+    </div>
+
+    <!-- Up next: pulled from the active to-do list -->
+    <div class="glass px-6 py-4 w-full max-w-md" x-show="state.focus.mainGoal">
+      <template x-if="upNext.length">
+        <div class="mb-3">
+          <p class="label mb-2">Up next · <span x-text="state.todo.activeList"></span></p>
+          <ul class="space-y-1.5">
+            <template x-for="t in upNext" :key="t.id">
+              <li class="flex items-center gap-3">
+                <button class="check" @click="completeTask(t.id)" aria-label="Mark task done"></button>
+                <span class="flex-1 min-w-0 text-sm break-words" x-text="t.text"></span>
+                <button class="icon-btn !p-1" @click="promoteTask(t.id)" title="Make this the current focus" aria-label="Make this the current focus"><span x-html="icon('play','w-3.5 h-3.5')"></span></button>
+              </li>
+            </template>
+          </ul>
+        </div>
+      </template>
+      <div class="flex gap-2">
+        <input class="field" placeholder="Add another task…" x-model="focusAddDraft" maxlength="140" @keydown.enter="addFocusTask(focusAddDraft); focusAddDraft = ''" aria-label="Add another task">
+        <button class="btn" @click="addFocusTask(focusAddDraft); focusAddDraft = ''" aria-label="Add task"><span x-html="icon('plus','w-4 h-4')"></span></button>
+      </div>
     </div>
   </div>
 </div>
@@ -689,6 +715,7 @@ tailwind.config = { theme: { extend: { fontFamily: {
         <div><label class="label block mb-1.5" for="p-cyc">Sessions per cycle</label><input id="p-cyc" type="number" min="1" max="12" class="field" x-model.number="state.pomodoro.cyclesBeforeLongBreak" @change="clampPomo()"></div>
       </div>
       <div class="flex items-center justify-between gap-4"><div class="text-sm font-medium">Auto-start breaks</div><button type="button" role="switch" class="switch" :aria-checked="state.pomodoro.autoStartBreaks" @click="state.pomodoro.autoStartBreaks = !state.pomodoro.autoStartBreaks" aria-label="Auto-start breaks"><span></span></button></div>
+      <div class="flex items-center justify-between gap-4"><div class="text-sm font-medium">Start the timer when the dashboard opens</div><button type="button" role="switch" class="switch" :aria-checked="state.pomodoro.autoStartOnOpen" @click="state.pomodoro.autoStartOnOpen = !state.pomodoro.autoStartOnOpen" aria-label="Start the timer when the dashboard opens"><span></span></button></div>
       <div class="flex items-center justify-between gap-4"><div class="text-sm font-medium">Auto-start focus sessions</div><button type="button" role="switch" class="switch" :aria-checked="state.pomodoro.autoStartFocus" @click="state.pomodoro.autoStartFocus = !state.pomodoro.autoStartFocus" aria-label="Auto-start focus sessions"><span></span></button></div>
       <div>
         <div class="flex items-center justify-between mb-1.5"><label class="label" for="p-vol">Chime volume</label><span class="text-xs text-white/60 tabular-nums" x-text="Math.round(state.pomodoro.soundVolume * 100) + '%'"></span></div>
@@ -956,7 +983,7 @@ function DEFAULT_STATE() {
     version: 1,
     profile: { name: 'Traveler', clockFormat: '12h', clockFont: 'font-sans', worldClocks: [] },
     focus: { mainGoal: '', completed: false, autoRollToNextTask: true, date: '', carried: false },
-    pomodoro: { workMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, cyclesBeforeLongBreak: 4, autoStartBreaks: false, autoStartFocus: false, soundVolume: 0.8 },
+    pomodoro: { workMinutes: 25, shortBreakMinutes: 5, longBreakMinutes: 15, cyclesBeforeLongBreak: 4, autoStartBreaks: false, autoStartFocus: false, autoStartOnOpen: true, soundVolume: 0.8 },
     media: { activeTab: 'spotify', spotifyUrl: 'https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M', youtubeUrl: 'https://www.youtube.com/watch?v=jfKfPfyJRdk', presets: [] },
     todo: { activeList: 'Today', lists: { Today: [], Inbox: [], Work: [], Personal: [] } },
     widgets: { weather: true, clock: true, quotes: true, todo: true, notes: true, countdown: true, metrics: true, worldClock: true, search: true, habits: true, calendar: true },
@@ -1005,6 +1032,7 @@ function sanitizeState(raw) {
   dp.cyclesBeforeLongBreak = Math.round(num(pm.cyclesBeforeLongBreak, 4, 1, 12));
   dp.autoStartBreaks = bool(pm.autoStartBreaks, false);
   dp.autoStartFocus = bool(pm.autoStartFocus, false);
+  dp.autoStartOnOpen = bool(pm.autoStartOnOpen, true);
   dp.soundVolume = num(pm.soundVolume, 0.8, 0, 1);
 
   const m = obj(raw.media);
@@ -1329,7 +1357,7 @@ function app() {
     mantraDraft: '',
     taskDraft: '', subDrafts: {}, newListOpen: false, newListName: '',
     notesPreview: false,
-    mediaDraft: '', mediaError: '', presetLabel: '', mediaEverOpened: false,
+    mediaDraft: '', mediaError: '', presetLabel: '', mediaEverOpened: false, mediaAutoplay: false, focusAddDraft: '',
     notifPerm: ('Notification' in window) ? Notification.permission : 'unsupported',
 
     bg: { layers: [{ url: '', visible: false }, { url: '', visible: false }], active: 0 },
@@ -1357,6 +1385,7 @@ function app() {
       this.loadWeather();
       setInterval(() => this.loadWeather(), 15 * 60 * 1000);
       this.calInit();
+      if (this.state.pomodoro.autoStartOnOpen) this.start(true);
       document.addEventListener('visibilitychange', () => { if (!document.hidden) this.tickPomo(); });
       document.addEventListener('pointerdown', () => this.unlockAudio(), { passive: true });
       document.addEventListener('keydown', e => {
@@ -1799,6 +1828,30 @@ function app() {
     },
     nextWallpaper() { this.bgIndex = (this.bgIndex + 1) % WALLPAPERS.length; this.applyWallpaper(); },
 
+    /* ---------- focus queue (shared by Focus Mode and the pop-out) ---------- */
+    get upNext() { return this.activeTasks.filter(t => !t.done).slice(0, 5); },
+    get wallpaperUrl() { const l = this.bg.layers[this.bg.active]; return l && l.visible ? l.url : ''; },
+    get canVideoPip() {
+      if ('documentPictureInPicture' in window) return false;
+      const v = document.createElement('video');
+      return !!(v.requestPictureInPicture && document.pictureInPictureEnabled !== false) || typeof v.webkitSetPresentationMode === 'function';
+    },
+    addFocusTask(text) {
+      const v = String(text || '').trim().slice(0, 140); if (!v) return;
+      const f = this.state.focus;
+      if (!f.mainGoal) { f.mainGoal = v; f.completed = false; f.carried = false; f.date = localDate(new Date()); }
+      else this.activeTasks.push({ id: uid(), text: v, done: false, open: false, subtasks: [] });
+    },
+    completeTask(id) { const t = this.activeTasks.find(x => x.id === id); if (t) t.done = true; },
+    promoteTask(id) {
+      const name = this.state.todo.activeList, list = this.state.todo.lists[name] || [], f = this.state.focus;
+      const t = list.find(x => x.id === id); if (!t) return;
+      const rest = list.filter(x => x.id !== id);
+      if (f.mainGoal && !f.completed) rest.unshift({ id: uid(), text: f.mainGoal, done: false, open: false, subtasks: [] });
+      this.state.todo.lists[name] = rest;
+      f.mainGoal = t.text.slice(0, 140); f.completed = false; f.carried = false; f.date = localDate(new Date());
+    },
+
     /* ---------- to-do ---------- */
     get listNames() { return Object.keys(this.state.todo.lists); },
     get activeTasks() { return this.state.todo.lists[this.state.todo.activeList] || []; },
@@ -1862,7 +1915,7 @@ function app() {
         return p ? { provider: 'spotify', src: p.embed, height: ['playlist', 'album', 'show', 'artist'].includes(p.type) ? 352 : 152, title: 'Spotify player' } : null;
       }
       const p = parseYouTube(m.youtubeUrl);
-      return p ? { provider: 'youtube', src: p.embed, title: 'YouTube player' } : null;
+      return p ? { provider: 'youtube', src: this.mediaAutoplay ? p.embed.replace('autoplay=0', 'autoplay=1') : p.embed, title: 'YouTube player' } : null;
     },
     get watchUrl() {
       const m = this.state.media;
@@ -1915,8 +1968,8 @@ function app() {
       if (this.pomo.status === 'IDLE') this.setPhase(this.pomo.phase);
     },
     toggleTimer() { this.running ? this.pause() : this.start(); },
-    start() {
-      this.unlockAudio(); this.askNotifyOnce();
+    start(silent) {
+      this.unlockAudio(); if (!silent) this.askNotifyOnce();
       if (this.running) return;
       this.pomo.endAt = Date.now() + this.pomo.remaining * 1000;
       this.pomo.status = this.pomo.phase;
@@ -1956,24 +2009,25 @@ function app() {
     },
     /* ---------- floating timer (pop-out window) ---------- */
     popOutTimer() {
-      if (this.ui.pip) { this.closePip(); return; }
+      if (this.ui.pip === 'window') { this.closePip(); return; }
+      if (this.ui.pip) this.closePip();
       this.unlockAudio();                       // user click here keeps the chime audible later
-      const v = document.createElement('video');
-      const videoPip = !!(v.requestPictureInPicture && document.pictureInPictureEnabled !== false) || typeof v.webkitSetPresentationMode === 'function';
       const open = async () => {
         let w = null;
-        if ('documentPictureInPicture' in window) {   // Chrome / Edge: small always-on-top window with buttons
-          try { w = await window.documentPictureInPicture.requestWindow({ width: 300, height: 360 }); } catch (e) { w = null; }
+        if ('documentPictureInPicture' in window) {   // Chrome / Edge: small always-on-top window
+          try { w = await window.documentPictureInPicture.requestWindow({ width: 360, height: 680 }); } catch (e) { w = null; }
         }
-        if (w) return this.mountPip(w);
-        if (videoPip) {                               // Safari (and others): floating always-on-top video of the timer
-          try { await this.mountVideoPip(); return; } catch (e) { this.closePip(); }
-        }
-        w = window.open('', 'momentum-timer', 'popup=yes,width=320,height=380');   // last resort: ordinary small window
+        if (!w) w = window.open('', 'momentum-timer', 'popup=yes,width=380,height=700');   // Safari / Firefox: ordinary small window
         if (!w) { this.toast('Pop-up blocked. Allow pop-ups for this page and try again.', 'error'); return; }
         this.mountPip(w);
       };
       open();
+    },
+    floatTimer() {
+      if (this.ui.pip === 'video') { this.closePip(); return; }
+      if (this.ui.pip) this.closePip();
+      this.unlockAudio();
+      this.mountVideoPip().catch(() => { this.closePip(); this.toast('This browser could not float the timer.', 'error'); });
     },
     closePip() {
       try { if (this._pip && !this._pip.closed) this._pip.close(); } catch (e) {}
@@ -1997,18 +2051,35 @@ function app() {
       const self = this, S = 480;
       const cv = document.createElement('canvas'); cv.width = cv.height = S;
       const g = cv.getContext('2d');
+      // Wallpaper behind the timer. Loaded with CORS so the canvas stays readable; if the host refuses, we keep a plain dark background.
+      let bgImg = null, bgUrl = '';
+      const syncBg = () => {
+        const u = self.wallpaperUrl;
+        if (u === bgUrl) return;
+        bgUrl = u; bgImg = null;
+        if (!u) return;
+        const im = new Image(); im.crossOrigin = 'anonymous'; im.referrerPolicy = 'no-referrer';
+        im.onload = () => { if (bgUrl === u) bgImg = im; };
+        im.src = u;
+      };
       const draw = () => {
+        syncBg();
         g.fillStyle = '#0a0a0a'; g.fillRect(0, 0, S, S);
+        if (bgImg) {
+          const iw = bgImg.naturalWidth, ih = bgImg.naturalHeight, k = Math.max(S / iw, S / ih);
+          g.drawImage(bgImg, (S - iw * k) / 2, (S - ih * k) / 2, iw * k, ih * k);
+          g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(0, 0, S, S);
+        }
         const c = S / 2, r = S * 0.4, ring = self.phaseColor;
         g.lineWidth = 14; g.lineCap = 'round';
-        g.strokeStyle = 'rgba(255,255,255,.15)'; g.beginPath(); g.arc(c, c, r, 0, Math.PI * 2); g.stroke();
+        g.strokeStyle = 'rgba(255,255,255,.2)'; g.beginPath(); g.arc(c, c, r, 0, Math.PI * 2); g.stroke();
         if (self.pomo.frac > 0) { g.strokeStyle = ring; g.beginPath(); g.arc(c, c, r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * self.pomo.frac); g.stroke(); }
-        g.textAlign = 'center'; g.fillStyle = '#fff';
-        g.font = '600 112px Inter, -apple-system, system-ui, sans-serif'; g.textBaseline = 'alphabetic';
+        g.textAlign = 'center'; g.fillStyle = '#fff'; g.textBaseline = 'alphabetic';
+        g.font = '600 112px Inter, -apple-system, system-ui, sans-serif';
         g.fillText(self.timeLeftText, c, c + 28);
-        g.fillStyle = 'rgba(255,255,255,.7)'; g.font = '500 28px Inter, -apple-system, system-ui, sans-serif';
+        g.fillStyle = 'rgba(255,255,255,.8)'; g.font = '500 28px Inter, -apple-system, system-ui, sans-serif';
         g.fillText(self.statusText.toUpperCase(), c, c + 78);
-        g.fillStyle = 'rgba(255,255,255,.5)'; g.font = '400 24px Inter, -apple-system, system-ui, sans-serif';
+        g.fillStyle = 'rgba(255,255,255,.6)'; g.font = '400 24px Inter, -apple-system, system-ui, sans-serif';
         g.fillText(self.sessionLabel, c, c + 114);
       };
       draw();
@@ -2020,7 +2091,7 @@ function app() {
       this._pipVideo = v; this._pipCanvas = cv;
       await v.play();
       if (v.requestPictureInPicture) await v.requestPictureInPicture(); else v.webkitSetPresentationMode('picture-in-picture');
-      this.ui.pip = true;
+      this.ui.pip = 'video';
       // A Worker is not throttled when this tab is in the background, so the picture keeps updating.
       let wk = null;
       try { wk = new Worker(URL.createObjectURL(new Blob(['setInterval(function(){postMessage(0)},250)'], { type: 'text/javascript' }))); } catch (e) {}
@@ -2047,32 +2118,134 @@ function app() {
       css.textContent = `
         *{box-sizing:border-box;margin:0}
         html,body{height:100%}
-        body{background:#0a0a0a;color:#fff;font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;display:flex;align-items:center;justify-content:center;overflow:hidden}
-        .wrap{display:flex;flex-direction:column;align-items:center;gap:3vmin;width:100%;padding:4vmin}
-        .ring{position:relative;width:min(68vw,52vh);aspect-ratio:1}
+        body{background:linear-gradient(135deg,#171717,#000);color:#fff;font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;overflow:hidden}
+        #bg{position:fixed;inset:0;background-size:cover;background-position:center;transition:background-image .4s}
+        #shade{position:fixed;inset:0;background:linear-gradient(rgba(0,0,0,.45),rgba(0,0,0,.7))}
+        .page{position:relative;height:100%;overflow-y:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+        .timer{display:flex;flex-direction:column;align-items:center;gap:10px;padding-top:4px}
+        .ring{position:relative;width:min(62vw,230px);aspect-ratio:1}
         .ring svg{width:100%;height:100%}
         .arc{transition:stroke-dashoffset .25s linear}
-        .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
-        #t{font-size:min(15vw,12vh);font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
-        #s{margin-top:1.2vmin;font-size:min(3.4vw,2.6vh);letter-spacing:.22em;text-transform:uppercase;color:rgba(255,255,255,.7)}
-        .btns{display:flex;gap:2.5vmin}
-        button{all:unset;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:.4em;padding:1.6vmin 2.6vmin;border-radius:.7em;background:rgba(255,255,255,.12);font-size:min(4vw,3vh);color:#fff}
-        button:hover{background:rgba(255,255,255,.22)}
-        button.primary{background:#fff;color:#000;font-weight:600;padding:1.6vmin 4.5vmin}
+        .center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-shadow:0 1px 3px rgba(0,0,0,.6)}
+        #t{font-size:clamp(34px,13vw,52px);font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
+        #s{margin-top:6px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.75)}
+        .btns{display:flex;gap:8px}
+        button{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:8px 12px;border-radius:10px;background:rgba(255,255,255,.14);font-size:13px;color:#fff}
+        button:hover{background:rgba(255,255,255,.25)}
+        button:focus-visible,input:focus-visible{outline:2px solid rgba(255,255,255,.7);outline-offset:1px}
+        button.primary{background:#fff;color:#000;font-weight:600;padding:8px 20px}
         button.primary:hover{background:rgba(255,255,255,.85)}
-        button svg{width:1.2em;height:1.2em}
-        #c{font-size:min(3vw,2.3vh);color:rgba(255,255,255,.55)}`;
+        button svg{width:16px;height:16px}
+        #c{font-size:12px;color:rgba(255,255,255,.65)}
+        .card{background:rgba(0,0,0,.42);border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:12px;-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px)}
+        h3{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,255,255,.65);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+        .item{display:flex;align-items:center;gap:10px;padding:5px 0}
+        .item .tx{flex:1;min-width:0;overflow-wrap:anywhere}
+        .item.cur .tx{font-size:16px;font-weight:600}
+        .tx.done{text-decoration:line-through;opacity:.55}
+        .chk{width:22px;height:22px;padding:0;flex:none;border-radius:7px;border:2px solid rgba(255,255,255,.65);background:transparent;font-size:13px;color:#000}
+        .chk:hover{background:rgba(255,255,255,.22)}
+        .chk.on{background:#fff;border-color:#fff}
+        .go{padding:3px 7px;font-size:11px;background:transparent;color:rgba(255,255,255,.7)}
+        .lbl{font-size:11px;color:rgba(255,255,255,.55);margin:8px 0 2px}
+        .empty,.hint,.now{font-size:12px;color:rgba(255,255,255,.55)}
+        .now{margin-bottom:6px;overflow-wrap:anywhere}
+        .err{font-size:12px;color:#fca5a5;margin-top:4px}
+        .row{display:flex;gap:6px;margin-top:8px}
+        input{all:unset;box-sizing:border-box;flex:1;min-width:0;padding:8px 10px;border-radius:9px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);font-size:13px;color:#fff}
+        input::placeholder{color:rgba(255,255,255,.45)}
+        .tabs{display:flex;gap:3px;background:rgba(255,255,255,.12);border-radius:9px;padding:3px}
+        .tabs button{padding:3px 10px;font-size:12px;font-weight:600;background:transparent;color:rgba(255,255,255,.75);border-radius:7px}
+        .tabs button.on.s{background:#22c55e;color:#000}
+        .tabs button.on.y{background:#ef4444;color:#fff}
+        .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+        .chip{display:inline-flex;align-items:center;gap:2px;padding:0;border-radius:999px;background:rgba(255,255,255,.14)}
+        .chip button{padding:4px 8px;background:transparent;border-radius:999px;font-size:12px}
+        .chip .x{padding:4px 7px 4px 2px;color:rgba(255,255,255,.6)}
+        .dot{width:7px;height:7px;border-radius:50%;margin-right:5px;display:inline-block}`;
       d.head.appendChild(css);
-      d.body.innerHTML = `<div class="wrap">
-        <div class="ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="rgba(255,255,255,.04)" stroke="rgba(255,255,255,.15)" stroke-width="3"/><circle id="arc" class="arc" cx="50" cy="50" r="45" fill="none" stroke-width="3.5" stroke-linecap="round" transform="rotate(-90 50 50)" stroke-dasharray="${RING_C}"/></svg>
-          <div class="center"><div id="t"></div><div id="s"></div></div></div>
-        <div class="btns"><button id="r" title="Reset">${icon('reset')}</button><button id="p" class="primary"></button><button id="k" title="Skip">${icon('skip')}</button></div>
-        <div id="c"></div></div>`;
+      d.body.innerHTML = `<div id="bg"></div><div id="shade"></div>
+        <div class="page">
+          <div class="timer">
+            <div class="ring"><svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="45" fill="rgba(0,0,0,.28)" stroke="rgba(255,255,255,.18)" stroke-width="3"/><circle id="arc" class="arc" cx="50" cy="50" r="45" fill="none" stroke-width="3.5" stroke-linecap="round" transform="rotate(-90 50 50)" stroke-dasharray="${RING_C}"/></svg>
+              <div class="center"><div id="t"></div><div id="s"></div></div></div>
+            <div class="btns"><button id="r" title="Reset" aria-label="Reset">${icon('reset')}</button><button id="p" class="primary"></button><button id="k" title="Skip" aria-label="Skip">${icon('skip')}</button></div>
+            <div id="c"></div>
+          </div>
+          <section class="card"><h3>Focus</h3>
+            <div id="cur"></div><div id="up"></div>
+            <div class="row"><input id="ti" placeholder="Add a task…" maxlength="140" aria-label="Add a task"><button id="ta">Add</button></div>
+          </section>
+          <section class="card"><h3>Music <span class="tabs"><button id="ms" class="s">Spotify</button><button id="my" class="y">YouTube</button></span></h3>
+            <div id="now" class="now"></div>
+            <div class="row" style="margin-top:0"><input id="mi" aria-label="Music link"><button id="ml" class="primary" style="padding:8px 14px">Load</button></div>
+            <div id="me" class="err"></div>
+            <div id="pr" class="chips"></div>
+            <div class="row"><input id="pl" placeholder="Label for current stream" maxlength="24" aria-label="Preset label"><button id="pa">Save</button></div>
+            <p class="hint" style="margin-top:8px">The music plays in the main dashboard tab, so keep that tab open.</p>
+          </section>
+        </div>`;
       const $ = id => d.getElementById(id);
+      const el = (tag, cls, text) => { const n = d.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+      // --- timer controls
       $('r').onclick = () => self.resetTimer();
       $('p').onclick = () => self.toggleTimer();
       $('k').onclick = () => self.skipPhase();
-      let lastBtn = '';
+      // --- tasks
+      const addTask = () => { self.addFocusTask($('ti').value); $('ti').value = ''; $('ti').focus(); };
+      $('ta').onclick = addTask;
+      $('ti').onkeydown = e => { if (e.key === 'Enter') addTask(); };
+      // --- music
+      const load = () => { self.mediaDraft = $('mi').value; self.mediaAutoplay = true; self.loadMedia(); if (!self.mediaError) $('mi').value = ''; };
+      $('ml').onclick = load;
+      $('mi').onkeydown = e => { if (e.key === 'Enter') load(); };
+      $('ms').onclick = () => { self.state.media.activeTab = 'spotify'; };
+      $('my').onclick = () => { self.state.media.activeTab = 'youtube'; };
+      $('pa').onclick = () => { self.presetLabel = $('pl').value; self.savePreset(); if (!self.mediaError) $('pl').value = ''; };
+      $('pl').onkeydown = e => { if (e.key === 'Enter') $('pa').onclick(); };
+
+      let lastBtn = '', lastBg = null, lastTasks = '', lastPresets = '', lastTab = '';
+      const renderTasks = () => {
+        const f = self.state.focus, ups = self.upNext;
+        const sig = JSON.stringify([f.mainGoal, f.completed, ups.map(t => t.id + '|' + t.text)]);
+        if (sig === lastTasks) return; lastTasks = sig;
+        const cur = $('cur'), up = $('up'); cur.textContent = ''; up.textContent = '';
+        if (f.mainGoal) {
+          const row = el('div', 'item cur'), cb = el('button', 'chk' + (f.completed ? ' on' : ''), f.completed ? '✓' : '');
+          cb.title = 'Mark focus complete'; cb.setAttribute('aria-label', 'Mark focus complete'); cb.onclick = () => self.toggleFocusComplete();
+          row.append(cb, el('span', 'tx' + (f.completed ? ' done' : ''), f.mainGoal)); cur.append(row);
+        } else cur.append(el('div', 'empty', 'Nothing set. Add your first task below.'));
+        if (ups.length) up.append(el('div', 'lbl', 'Up next · ' + self.state.todo.activeList));
+        ups.forEach(t => {
+          const row = el('div', 'item'), cb = el('button', 'chk'), go = el('button', 'go', '▶ Now');
+          cb.title = 'Mark done'; cb.setAttribute('aria-label', 'Mark done'); cb.onclick = () => self.completeTask(t.id);
+          go.title = 'Make this the current focus'; go.onclick = () => self.promoteTask(t.id);
+          row.append(cb, el('span', 'tx', t.text), go); up.append(row);
+        });
+      };
+      const renderMusic = () => {
+        const m = self.state.media, tab = m.activeTab;
+        if (tab !== lastTab) {
+          lastTab = tab;
+          $('ms').classList.toggle('on', tab === 'spotify'); $('my').classList.toggle('on', tab === 'youtube');
+          $('mi').placeholder = tab === 'spotify' ? 'Paste a Spotify link…' : 'Paste a YouTube link…';
+        }
+        const url = self.embed ? self.watchUrl.replace(/^https?:\/\//, '') : '';
+        $('now').textContent = url ? 'Now: ' + (url.length > 46 ? url.slice(0, 45) + '…' : url) : 'Nothing loaded yet.';
+        $('me').textContent = self.mediaError || '';
+        const sig = JSON.stringify(m.presets.map(p => [p.id, p.label, p.type]));
+        if (sig !== lastPresets) {
+          lastPresets = sig;
+          const box = $('pr'); box.textContent = '';
+          m.presets.forEach(p => {
+            const chip = el('span', 'chip'), use = el('button', ''), x = el('button', 'x', '✕'), dot = el('span', 'dot');
+            dot.style.background = p.type === 'spotify' ? '#4ade80' : '#f87171';
+            use.append(dot, d.createTextNode(p.label)); use.onclick = () => { self.mediaAutoplay = true; self.usePreset(p); };
+            x.title = 'Delete preset'; x.setAttribute('aria-label', 'Delete preset ' + p.label); x.onclick = () => self.removePreset(p.id);
+            chip.append(use, x); box.append(chip);
+          });
+        }
+      };
       const render = () => {
         const run = self.running, btn = run ? 'pause' : (self.pomo.status === 'PAUSED' ? 'resume' : 'start');
         $('t').textContent = self.timeLeftText;
@@ -2083,11 +2256,14 @@ function app() {
         arc.setAttribute('stroke-dashoffset', RING_C * (1 - self.pomo.frac));
         if (btn !== lastBtn) { lastBtn = btn; $('p').innerHTML = icon(run ? 'pause' : 'play') + '<span>' + btn[0].toUpperCase() + btn.slice(1) + '</span>'; }
         d.title = run ? self.timeLeftText + ' · Momentum' : 'Momentum timer';
+        const wp = self.wallpaperUrl;
+        if (wp !== lastBg) { lastBg = wp; $('bg').style.backgroundImage = wp ? "url('" + cssUrl(wp) + "')" : 'none'; }
+        renderTasks(); renderMusic();
       };
       render();
       // Tick from this window too: it is visible, so the browser never throttles it like a background tab.
       const iv = w.setInterval(() => { self.tickPomo(); render(); }, 250);
-      this._pip = w; this.ui.pip = true;
+      this._pip = w; this.ui.pip = 'window';
       w.addEventListener('pagehide', () => { w.clearInterval(iv); if (this._pip === w) { this._pip = null; this.ui.pip = false; } });
     },
     updateTitle() {
