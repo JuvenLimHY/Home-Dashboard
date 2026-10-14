@@ -1109,10 +1109,10 @@ function loadState() {
   try { raw = localStorage.getItem(STORAGE_KEY); }
   catch (e) { return { state: DEFAULT_STATE(), warning: 'Browser storage is unavailable, so changes won’t be saved.', persistent: false }; }
   if (!raw) return { state: DEFAULT_STATE(), warning: null, persistent: true };
-  try { return { state: sanitizeState(JSON.parse(raw)), warning: null, persistent: true }; }
+  try { return { state: sanitizeState(JSON.parse(raw)), warning: null, persistent: true, raw }; }
   catch (e) {
     try { localStorage.setItem(STORAGE_KEY + '_CORRUPT_BACKUP', raw); } catch (_) {}
-    return { state: DEFAULT_STATE(), warning: 'Saved data was unreadable and has been reset (a copy was kept in storage).', persistent: true };
+    return { state: DEFAULT_STATE(), warning: 'Saved data was unreadable and has been reset (a copy was kept in storage).', persistent: true, raw };
   }
 }
 
@@ -1328,6 +1328,8 @@ function app() {
     persistent: loaded.persistent,
     _warning: loaded.warning,
     saveStatus: 'saved', lastSaved: null, _saveT: null,
+    _lastRaw: loaded.raw || null,   // exact string this tab last read from / wrote to storage
+    _adoptedNorm: null,             // normalised form of state adopted from another tab (so we don't echo it back)
 
     now: new Date(),
     panel: '',
@@ -1394,6 +1396,7 @@ function app() {
         else if (this.panel) this.panel = '';
         else if (this.ui.focus) this.exitFocus();
       });
+      window.addEventListener('storage', e => { if (e.key === STORAGE_KEY && e.newValue && e.newValue !== this._lastRaw) this.adoptStored(e.newValue); });
       window.addEventListener('beforeunload', () => { this.saveNow(); try { this.closePip(); } catch (e) {} });
     },
 
@@ -1401,8 +1404,27 @@ function app() {
     scheduleSave() { this.saveStatus = 'saving'; clearTimeout(this._saveT); this._saveT = setTimeout(() => this.saveNow(), 300); },
     saveNow() {
       if (!this.persistent) { this.saveStatus = 'error'; return; }
-      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state)); this.lastSaved = new Date(); this.saveStatus = 'saved'; }
+      try {
+        const cur = localStorage.getItem(STORAGE_KEY);
+        // Another tab saved since this tab last read/wrote: take its data rather than overwrite it with this tab's older copy.
+        if (cur !== null && cur !== this._lastRaw) { this.adoptStored(cur); this.saveStatus = 'saved'; return; }
+        const out = JSON.stringify(this.state);
+        if (out !== cur && out !== this._adoptedNorm) { localStorage.setItem(STORAGE_KEY, out); this._lastRaw = out; this._adoptedNorm = null; }
+        else this._lastRaw = cur;
+        this.lastSaved = new Date(); this.saveStatus = 'saved';
+      }
       catch (e) { this.saveStatus = 'error'; this.toast('Could not save: storage may be full or blocked.', 'error'); }
+    },
+    // Pull in data another tab saved, so open tabs stay in sync and never overwrite each other.
+    adoptStored(raw) {
+      this._lastRaw = raw;
+      try {
+        const ns = sanitizeState(JSON.parse(raw));
+        const wpChanged = JSON.stringify(ns.wallpaper) !== JSON.stringify(this.state.wallpaper);
+        this._adoptedNorm = JSON.stringify(ns);
+        this.state = ns;
+        if (wpChanged) this.applyWallpaper();
+      } catch (e) { /* unreadable data from another tab: keep ours */ }
     },
     exportData() {
       try {
